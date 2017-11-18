@@ -135,6 +135,7 @@ IncludeCmd: no
 
   echo -e "\n#####\nPush jar files\n#####\n"
   mkdir -p /opt/jars
+  cd /opt/jars
   wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/picard.jar
   wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/GenomeAnalysisTK.jar
   wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/VarScan2.jar
