@@ -116,8 +116,10 @@ IncludeCmd: no
   echo -e "\n#####\nSetup JDK8\n#####\n"
   mkdir -p /opt/java
   cd /opt/java
-  tar xvzf /setup/deps/jdk-8u151-linux-x64.tar.gz
+  wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/jdk-8u151-linux-x64.tar.gz
+  tar xvzf jdk-8u151-linux-x64.tar.gz
   ln -s jdk1.8.0_151 jdk8
+  rm -f jdk-8u151-linux-x64.tar.gz
   cd /opt/java/jdk1.8.0_151/lib/amd64
   ln -s ../../jre/lib/amd64/server ./server
   mkdir -p /usr/lib/jvm
@@ -126,23 +128,27 @@ IncludeCmd: no
 
   echo -e "\n#####\nSetup JDK7\n#####\n"
   cd /opt/java
-  tar xvzf /setup/deps/jdk1.7.0_79.tar.gz
+  wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/jdk1.7.0_79.tar.gz
+  tar xvzf jdk1.7.0_79.tar.gz
   ln -s jdk1.7.0_79 jdk7
+  rm -f jdk1.7.0_79.tar.gz
 
   echo -e "\n#####\nPush jar files\n#####\n"
   mkdir -p /opt/jars
-  rsync -avhP /setup/deps/picard.jar /opt/jars/
-  rsync -avhP /setup/deps/GenomeAnalysisTK.jar /opt/jars/
-  rsync -avhP /setup/deps/VarScan2.jar /opt/jars/
-  rsync -avhP /setup/deps/mutect-1.1.7.jar /opt/jars/mutectv1.jar
+  wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/picard.jar
+  wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/GenomeAnalysisTK.jar
+  wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/VarScan2.jar
+  wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/mutect-1.1.7.jar
   chown -R root:glass /opt/jars
   chmod 644 /opt/jars/*.jar
 
   echo -e "\n#####\nSetup PRADA\n#####\n"
   mkdir -p /opt/prada
   cd /opt/prada
-  tar xvzf /setup/deps/pyPRADA_1.2.tar.gz
+  wget --no-check-certificate ftp://ftp.jax.org/verhaak/deps/pyPRADA_1.2.tar.gz
+  tar xvzf pyPRADA_1.2.tar.gz
   chown -R root:glass pyPRADA_1.2
+  rm -f pyPRADA_1.2.tar.gz
   cd /
 
   echo -e "\n#####\nUpdate Env\n#####\n"
@@ -172,7 +178,7 @@ IncludeCmd: no
 
   Rscript -e 'install.packages("sequenza", repos = c(CRAN="http://cran.rstudio.com"))'
 
-  rsync -avhP /setup/deps/sequenza-utils.py /opt/bin/sequenza-utils.py
+  wget --no-check-certificate -O /opt/bin/sequenza-utils.py ftp://ftp.jax.org/verhaak/deps/sequenza-utils.py
   chmod 755 /opt/bin/sequenza-utils.py
 
   echo -e "\n#####\nSetup flowr\n#####\n"
