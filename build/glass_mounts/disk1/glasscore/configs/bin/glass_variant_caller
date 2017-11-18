@@ -1,0 +1,155 @@
+#!/bin/bash
+
+# Wrapper to run docker based variant calling pipeline for GLASS consortium
+# v1.0.2
+# @sbamin
+
+# usage
+show_help() {
+cat << EOF
+
+Wrapper to run docker based variant calling pipeline for GLASS consortium
+
+Required parameters: Unique sample name, file names for tumor and reference bam files, and GO to run pipeline on a compute node.
+Please avoid naming file names and sample names having spaces and special characters.
+
+Usage: ${0##*/} -s <UNIQUE SAMPLE NAME> -t <TUMOR BAM FILENAME> -n <NORMAL BAM FILENAME> -r <RUN MODE (DRY|GO; default: DRY)>  -p <PATH TO GLASS BASE DIR (default:/home/mdauser/docktest)> | tee -a ~/glass_run.log"
+
+    -h  display this help and exit
+        -s  unique sample name (Required: This will be used in all output file names as well as docker container id)
+        -t  tumor bam file name (Required: assuming this file is under <docker base director>/dockscratch/tmp/ path)
+        -n  reference bam file name (Required: assuming this file is under <docker base director>/dockscratch/tmp/ path)
+        -r  run mode: DRY or GO (default: DRY; GO will execute actual pipeline on a compute node)
+        -p  path to GLASS base directory where all software and code dependencies are stored (default: /home/mdauser/docktest)
+
+Example: ${0##*/} -p /home/mdauser/docktest -t C484.TCGA-06-0125-01A-01D-1490-08.6.bam -n C484.TCGA-06-0125-10A-01D-1490-08.6.bam -s TCGA-06-0125-01A-10A -r GO | tee -a ~/glass_run.log
+
+EOF
+}
+
+if [[ $# == 0 ]];then show_help;exit 1;fi
+
+while getopts "s:t:n:r:p:h" opt; do
+    case "$opt" in
+        h) show_help;exit 0;;
+        s) SAMPLE_UUID=$OPTARG;;
+        t) TMID=$OPTARG;;
+        n) NRID=$OPTARG;;
+        r) RUNMODE=$OPTARG;;
+        p) DOCKDIR=$OPTARG;;
+       '?')show_help >&2 exit 1 ;;
+    esac
+done
+
+DOCKDIR=${DOCKDIR:-"/home/mdauser/docktest"}
+DOCKSCRATCH=${DOCKDIR}/dockscratch
+DOCKOPT=${DOCKDIR}/dockopt
+
+## exit if GLASS base directory is not present or does not meet required subdirectory structure.
+
+if [[ ! -d ${DOCKDIR} || ! -d ${DOCKSCRATCH} || ! -d ${DOCKOPT} || ! -d ${DOCKSCRATCH}/docker_mutect || ! -d ${DOCKSCRATCH}/bundle ]];then
+    echo -e "\n##### ERROR #####\nEither GLASS base directory does not exist at ${DOCKDIR} or GLASS base directory does not seem to have required subdirectory structure, i.e.,\nThere should be ${DOCKSCRATCH} and ${DOCKOPT} directories.\nYou can override default base directory with -p flag. See example below or README file present within GLASS code repository\n#################"
+    show_help
+    exit 1
+fi
+
+## exit if GLASS base directory does not mutect and/or GATK jar files at specified paths.
+
+if [[ ! -s ${DOCKOPT}/gatk/GenomeAnalysisTK.jar || ! -s ${DOCKOPT}/mutect/mutect-1.1.7.jar || ! -s ${DOCKOPT}/mutect/muTect-1.1.4.jar ]];then
+    echo -e "\n##### ERROR #####\nMissing or zero-byte GATK and/or MuTect jar files at one or more of following paths:\n${DOCKOPT}/gatk/GenomeAnalysisTK.jar\n${DOCKOPT}/mutect/mutect-1.1.4.jar\n${DOCKOPT}/mutect/mutect-1.1.7.jar\nSee README file present within GLASS code repository\n#################"
+    show_help
+    exit 1
+fi
+
+## exit if sample name, tumor/reference bam file name is not specified with -s, -t and -n flag
+
+if [[ -z ${SAMPLE_UUID} || -z ${TMID} || -z ${NRID} ]];then
+    echo -e "\n##### ERROR #####\nMissing one or more of following attributes: sample name, tumor bam file name and reference bam file name.\nYou have specified either nothing with -s, -t and -n flag or it is following:\n-s ${SAMPLE_UUID}\n-t ${TMID}\n-n ${NRID}\n#################"
+    show_help
+    exit 1
+fi
+
+## Check if tumor and reference bam files are present and of non-zero size
+
+if [[ ! -s ${DOCKSCRATCH}/tmp/${TMID} || ! -s ${DOCKSCRATCH}/tmp/${NRID} ]];then
+    echo -e "\n##### ERROR #####\nMissing or zero-byte tumor and/or reference bam files at one or more of following paths:\nTumor bam specified using -t flag: ${DOCKSCRATCH}/tmp/${TMID}\nReference/Normal bam specified using -n flag: ${DOCKSCRATCH}/tmp/${NRID}\nSee README file present within GLASS code repository\n#################"
+    show_help
+    exit 1
+fi
+
+## make docker container ID
+TSTAMP=$(date +%d%b%y_%H%M%S%Z)
+DOCKID=$(printf "%s_%s" "${SAMPLE_UUID}" "${TSTAMP}")
+
+## Check run mode argument supplied with -r:
+
+RUNMODE=${RUNMODE:-DRY}
+if [[ ${RUNMODE} == "DRY" ]];then
+    echo -e "\n##### INFO #####\ndocker run will be in dry mode because you have either not used -r flag or specified following: -r ${RUNMODE}\nTo run actual analysis pipeline, use -r GO option.\n"
+    
+    #set flowr execute status
+    FLOWRUN="FALSE"
+
+elif [[ ${RUNMODE} == "GO" ]]; then
+    echo -e "\n##### INFO #####\ndocker run will be in real mode and will submit jobs to a compute node.\nTo run in dry mode, use -r DRY option.\n"
+    
+    #set flowr execute status
+    FLOWRUN="TRUE"
+else
+    echo -e "\n##### ERROR #####\nIncorrect parameter to -r flag. It should be either DRY for dry run or GO to submit jobs to a compute node.\nYou have specified -r ${RUNMODE}\n#################"
+    show_help
+    exit 1
+fi
+
+## format docker run command:
+DOCKCMD=$(printf "docker run -d --name %s -v %s:/scratch -v %s/docker_mutect:/scratch/docker_mutect:ro -v %s/bundle:/scratch/bundle -v %s/gatk:/opt/gatk -v %s/mutect:/opt/mutect sbamin/glass_tools:1.0-b2 /bin/bash -c \"cd /scratch/docker_mutect/flowr && flowr run x=flowr_ultraseq mytm_bampath=\"/scratch/tmp/%s\" mynr_bampath=\"/scratch/tmp/%s\" sample_name=\"%s\" execute=%s\"" ${DOCKID} ${DOCKSCRATCH} ${DOCKSCRATCH} ${DOCKSCRATCH} ${DOCKOPT} ${DOCKOPT} ${TMID} ${NRID} ${SAMPLE_UUID} ${FLOWRUN})
+
+## Run docker run command with strict error checking:
+set -e
+echo -e "\n#### Now running following docker run command ####\nUnless docker run syntax is incorrect, detailed summary of running container will be displayed at the end.\n"
+echo -e "${DOCKCMD}\n"
+
+DOCKRUN=$(eval "${DOCKCMD}")
+EXITSTAT=$?
+set +e
+
+## PRINT SUMMARY IF COMMAND SUCCEEDS:
+
+cat << EOF
+
+####################################################################################
+Summary of variables supplied to docker run command at ${TSTAMP}
+
+SAMPLE UUID: ${SAMPLE_UUID}
+Tumor bam path: ${DOCKSCRATCH}/tmp/${TMID}
+Reference bam path: ${DOCKSCRATCH}/tmp/${NRID}
+
+GLASS BASE DIRECTORY: ${DOCKDIR}
+GLASS CODE DIRECTORY: ${DOCKSCRATCH}/docker_mutect
+
+#### Docker run command ####
+
+${DOCKCMD}
+
+Above command was run with exit code: ${EXITSTAT}. This exit code does not indicate exit status of docker container. For the latter, use:
+docker ps -a --filter "id=${DOCKRUN}"
+############################
+
+Docker container name: ${DOCKID}
+Docker container ID: ${DOCKRUN}
+
+You may check container status by:
+docker ps -a --filter "id=${DOCKRUN}"
+
+You may get container logs by:
+docker logs ${DOCKID} 2> ~/docker_stdout.log
+
+RUN TYPE: ${RUNMODE} or ${FLOWRUN} ; GO or TRUE means it will submit commands to a compute node.
+
+If RUN TYPE was GO, variant calls and log files will be saved at following directory:
+${DOCKSCRATCH}/flowr/${SAMPLE_UUID}_<UUID assigned by flowr>/
+####################################################################################
+
+EOF
+
+## END ##

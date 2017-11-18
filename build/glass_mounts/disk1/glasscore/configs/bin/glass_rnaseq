@@ -1,0 +1,123 @@
+#!/bin/bash
+
+# Wrapper to run STAR-HTSeq calling pipeline on Shark HPC using Transfer Queue
+# v1.2.1
+# @sbamin
+
+# usage
+show_help() {
+cat << EOF
+
+Wrapper to run STAR-HTSeq calling pipeline on Shark HPC using Transfer Queue
+
+Required parameters: Analysis UUID, Unique sample name and tarball file names from CGQuery summary.tsv file
+Please avoid naming file names and sample names having spaces and special characters.
+
+Usage: ${0##*/} -u <ANALYSIS UUID> -s <UNIQUE SAMPLE NAME> -f <tarball file name from cgquery metadata> | tee -a ~/starseq.log
+
+    -h  display this help and exit
+        -u  analysis uuid (Required)
+        -s  unique sample name (Optional; default to analysis uuid)
+        -f  expected file name (not path) of tarball (Required); use SKIP if fastqs are already uncompressed at <flowr_workdir>/tmp/ path
+        -d flowr code directory(Default: ~/pipelines/starseq/flowr)
+        -n Run mode (default: DRY); Use GO to submit jobs on cluster
+        -w flowr output directory (Optional; default is as in flowr_starseq.conf)
+
+Example: ${0##*/} -u ff3cbb30-8e67-4797-b2f5-60effaea7c2c -s TCGA-CW-5584-11A-01R-1541-07 -f UNCID_2200798.13c839d1-f77b-4bde-9bd5-8d5165d94346.111122_UNC15-SN850_0148_AC05D7ACXX_8_GGCTAC.tar.gz -n GO | tee -a ~/starseq.log
+
+EOF
+}
+
+if [[ $# == 0 ]];then show_help;exit 1;fi
+
+while getopts "u:s:f:d:n:w:h" opt; do
+    case "$opt" in
+        h) show_help;exit 0;;
+        u) SUUID=$OPTARG;;
+        s) SNAME=$OPTARG;;
+        f) TARID=$OPTARG;;
+        d) CODE=$OPTARG;;
+        n) RUNMODE=$OPTARG;;
+        w) FLOWOUT=$OPTARG;;
+       '?')show_help >&2 exit 1 ;;
+    esac
+done
+
+SNAME=${SNAME:-"$SUUID"}
+CODE=${CODE:-"${HOME}"/pipelines/starseq/flowr}
+
+## exit if required variables are empty
+
+if [[ -z ${SUUID} || -z ${SNAME} || -z ${TARID} || ! -d "${CODE}" ]];then
+    echo -e "\n##### ERROR #####\nMissing one or more of following attributes: analysis uuid, sample name, fastq tarball file name or flowr directory\nYou have specified either nothing with -u, -s,-f or -d flag or it is following:\n-u ${SUUID}\n-s ${SNAME}\n-f ${TARID}\n-d ${CODE}\n#################"
+    show_help
+    exit 1
+fi
+
+## make flowr run ID
+TSTAMP=$(date +%d%b%y_%H%M%S%Z)
+RUNID=$(printf "%s_%s" "${SUUID}" "${TSTAMP}")
+
+## Check run mode argument supplied with -r:
+RUNMODE=${RUNMODE:-DRY}
+
+if [[ ${RUNMODE} == "DRY" ]];then
+    echo -e "\n##### INFO #####\nflowr run will be in dry mode because you have either not used -r flag or specified following: -r ${RUNMODE}\nTo run actual analysis pipeline, use -r GO option.\n"
+    
+    #set flowr execute status
+    FLOWRUN="FALSE"
+
+elif [[ ${RUNMODE} == "GO" ]]; then
+    echo -e "\n##### INFO #####\nflowr run will be in real mode and will submit jobs to a compute node.\nTo run in dry mode, use -r DRY option.\n"
+    
+    #set flowr execute status
+    FLOWRUN="TRUE"
+else
+    echo -e "\n##### WARN #####\nIncorrect parameter to -n flag. It should be either DRY for dry run or GO to submit jobs to a compute node.\nYou have specified -r ${RUNMODE}\nflowr will fall back to DRY run\n#################"
+    FLOWRUN="FALSE"
+    RUNMODE="DRY"
+fi
+
+if [[ -z "${FLOWOUT}" ]]; then
+
+    ## format flowr run command with default flowr output as per flow_run_path variable in flowr_starseq.conf
+    FLOWCMD=$(printf "flowr run x=flowr_starseq gt_uuid=\"%s\" fq_tarball=\"%s\" sample_name=\"%s\" execute=%s" "${SUUID}" "${TARID}" "${SNAME}" "${FLOWRUN}")
+else
+    ## format flowr run command with custom flowr output directory as per -w flag of this wrapper script
+    FLOWCMD=$(printf "flowr run x=flowr_starseq gt_uuid=\"%s\" fq_tarball=\"%s\" sample_name=\"%s\" wd=\"%s\" execute=%s" "${SUUID}" "${TARID}" "${SNAME}" "${FLOWOUT}" "${FLOWRUN}")
+fi
+
+
+## Run flowr run command with strict error checking:
+set -e
+echo -e "\n#### Now running following ####\nUnless flowr run syntax is incorrect, summary of running flowr workflow will be displayed at the end.\n"
+echo -e "${FLOWCMD}\n"
+
+# FLOWRUN=$(eval "${FLOWCMD}")
+EXITSTAT=$?
+set +e
+
+## PRINT SUMMARY IF COMMAND SUCCEEDS:
+
+cat << EOF
+
+####################################################################################
+Summary of variables supplied to flowr run command at ${TSTAMP}
+
+RUN ID: ${RUNID}
+ANALYSIS UUID: ${SUUID}
+SAMPLE NAME: ${SNAME}
+fastq bam file name: ${TARID}
+
+#### flor run command ####
+
+${FLOWCMD}
+
+Above command was run with exit code: ${EXITSTAT}. This exit code does not indicate exit status of flowr workflow. For the latter, use: flowr status x=~/flowr/starout
+
+RUN TYPE: ${RUNMODE} ; GO or TRUE means it will submit commands to a compute node.
+####################################################################################
+
+EOF
+
+## END ##
