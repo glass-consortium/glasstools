@@ -1,0 +1,21 @@
+{
+    "WEBSITE": "https://docker.glass-consortium.org",
+    "org.label-schema.usage.singularity.deffile.bootstrap": "docker",
+    "MAINTAINER": "Samir B. Amin, tweet: sbamin, web: https://sbamin.com",
+    "NAME": "glasstools:beta",
+    "LICENSE": "https://github.com/glass-consortium/glasstools/blob/master/LICENSE",
+    "org.label-schema.usage": "/.singularity.d/runscript.help",
+    "org.label-schema.schema-version": "1.0",
+    "org.label-schema.build-date": "2017-11-18T08:21:38-05:00",
+    "org.label-schema.usage.singularity.deffile.includecmd": "no",
+    "VERSION": "v1.1.2s2",
+    "org.label-schema.usage.singularity.deffile.from": "ubuntu:16.04",
+    "org.label-schema.usage.singularity.deffile": "Singularity.beta",
+    "SOURCECODE": "https://github.com/glass-consortium/glasstools",
+    "org.label-schema.usage.singularity.runscript.help": "/.singularity.d/runscript.help",
+    "org.label-schema.usage.singularity.version": "2.4-install_718360bb.g718360bb",
+    "CONTACT": "Roel Verhaak, tweet: roelverhaak, web: https://www.jax.org/verhaak-lab",
+    "org.label-schema.build-size": "4539MB",
+    "ISSUES": "https://github.com/glass-consortium/glassdocs/issues",
+    "DESCRIPTION": "Singularity image to run GLASS consortium workflows"
+}
