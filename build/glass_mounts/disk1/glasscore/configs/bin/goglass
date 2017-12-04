@@ -38,10 +38,10 @@ Visit http://docker.glass-consortium.org for details on setting up disk mounts.
 -n or run type: DRY (test run) or GO (actual run)
 
 To switch to whole genome derived fastq files, do:
-${GCMDPREFIX} -m DNA -t align -i fqs -s sample_barcode -f mapping_table.tsv -d wgs -n GO
+${GCMDPREFIX} -m DNA -t align -i fqs -s sample_barcode -f mapping_table.tsv -d WGS -n GO
 
 For dry run, e.g.,:
-${GCMDPREFIX} -m DNA -t align -i fqs -s sample_barcode -f mapping_table.tsv -d wgs -n DRY
+${GCMDPREFIX} -m DNA -t align -i fqs -s sample_barcode -f mapping_table.tsv -d WGS -n DRY
 
 In all cases, place raw fastq files and related mapping file under 
 <path to disk2>/glassdata/inputs/fqs/<sample_barcode>/ directory
@@ -244,12 +244,16 @@ if [[ ${RUNMODE} == "WES" ]]; then
   echo -e "\n#### INFO ####\nUsing WES alignment workflows because RUNMODE is ${GMODE}\n###########\n"
 
   cd "${GLASSFLOW}"/flowr
-  DOCKCMD=$(printf "flowr run x=flowr_aln_fqs_wes fqs_map_file=\"%s\" sample_name=\"%s\" platform=local execute=%s\"" "${MAPFILE}" "${GBARCODE}" "${FLOWRUN}")
+  echo "Entering $(pwd)"
+
+  DOCKCMD=$(printf "flowr run x=flowr_aln_fqs_wes fqs_map_file=\"%s\" sample_name=\"%s\" platform=local execute=%s" "${MAPFILE}" "${GBARCODE}" "${FLOWRUN}")
 else
   echo -e "\n#### INFO ####\nUsing WGS alignment workflows because RUNMODE is ${GMODE}\n###########\n"
 
   cd "${GLASSFLOW}"/flowr
-  DOCKCMD=$(printf "flowr run x=flowr_aln_fqs fqs_map_file=\"%s\" sample_name=\"%s\" platform=local execute=%s\"" "${MAPFILE}" "${GBARCODE}" "${FLOWRUN}")
+  echo "Entering $(pwd)"
+
+  DOCKCMD=$(printf "flowr run x=flowr_aln_fqs fqs_map_file=\"%s\" sample_name=\"%s\" platform=local execute=%s" "${MAPFILE}" "${GBARCODE}" "${FLOWRUN}")
 fi
 
 ## Evaluate command:
@@ -257,7 +261,7 @@ echo -e "\n#### Now running following command ####\n"
 echo -e "${DOCKCMD}\n"
 
 ####### Following line will submit docker command ########
-eval "${DOCKCMD}" | tee -a "${GLASS_SCRATCH}"/logs/"${DOCKID}".log
+bash -c "${DOCKCMD}" | tee -a "${GLASS_SCRATCH}"/logs/"${DOCKID}".log
 EXITSTAT=$?
 
 ## PRINT SUMMARY OF RUN STATUS:
@@ -280,7 +284,8 @@ GLASS REFERENCE DATA: ${GLASSREF}
 ${DOCKCMD}
 
 Above command was run with exit code: ${EXITSTAT}
-
+PS: Exit code is for shell wrapper and R commands may not have same exit code.
+Check execution log for errors, if any.
 #######################################
 
 Container name: ${DOCKID}
