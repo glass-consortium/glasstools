@@ -7,13 +7,14 @@
 #
 
 echo -e "\nIf user profile.d was loaded correctly, R_LIBS_USER is $R_LIBS_USER"
-echo -e "Docker container is running with following UID and GID"
+echo -e "Running container with following UID and GID"
 id -a "${USER}"
-echo -e "\n#### Docker container environment ####"
+echo -e "\n#### Container environment ####"
 env
-echo -e "\n#######\nOutput from commands specified under glasscore/Workflows/startup script\n#######\n"
-echo "Hello World!"
+echo -e "\n###########################################################\n"
 ## END ##
+
+GCMDPREFIX="singularity run --app goglass -B /mnt/disk1/glasscore:/mnt/glasscore -B /mnt/disk1/scratch:/mnt/scratch -B /mnt/disk2/glassdata:/mnt/glassdata glasstools_keystone_beta.simg"
 
 # usage
 show_help() {
@@ -24,36 +25,30 @@ Example workflow
 
 Visit http://docker.glass-consortium.org on getting started with workflows
 
-Usage: ${0##*/} -s <UNIQUE SAMPLE NAME> -a <FILENAME OF FASTQ MAPPING TABLE> -m <RUN MODE (WGS|WES; default: WGS)> \
-                -t <RUN TYPE (DRY|GO; default: DRY)> -d1 <PATH TO DISK1 (default:/mnt/disk1)> \
-                -d1 <PATH TO DISK2 (default:/mnt/disk2)> | tee -a ~/glass_run.log
+Usage: ${GCMDPREFIX} -m DNA -t align -i fqs -s sample_barcode -f mapping_table.tsv -d wes -n GO
+where /mnt/disk1 and /mnt/disk2 are paths to disk1 and disk2 on the host machine.
+Visit http://docker.glass-consortium.org for details on setting up disk mounts.
 
-    -h  display this help and exit
-        -s  unique sample_barcode (Required: This will be used to annotate bam headers and name output files)
-        -a  filename (and not full path) of fastq mapping table. 
-            Place this file under /mnt/disk2/glassdata/inputs/fqs/sample_barcode/ path
-            default is <sample_barcode>_mapping_table.tsv
+-m or mode: DNA (Others: RNA)
+-t or type: align (Others: mutect, mutect2, varscan2 for DNA; align, star, prada for RNA)
+-i or input: fqs for paired-end fastq (Others: bam for paired-end legacy bam files or level 1 aligned bam files from GLASS workflows for variant calling or RNAseq analyses)
+-s or unique sample barcode, preferably containing immutable uuid
+-f or mapping table: required for DNA alignments to get details on read groups for multi-lane sequenced samples
+-d or data type: WGS or WES for alignments
+-n or run type: DRY (test run) or GO (actual run)
 
-        -m  run mode: WGS or WES (default: WGS; select WES if input fastqs are from whole exome or other target capture based assay)
-        -t  run type: DRY or GO (default: DRY; GO will execute actual pipeline on a compute node)
-        -r  path to reference data disk1 base (default: /mnt/disk1)
-        -e  path to storage data disk2 base (default: /mnt/disk2)
-            Read http://docker.glass-consortium.org on setting up disk mounts by downloading pre-built reference datasets.
+To switch to whole genome derived fastq files, do:
+${GCMDPREFIX} -m DNA -t align -i fqs -s sample_barcode -f mapping_table.tsv -d wgs -n GO
 
-Assuming disk1 and disk2 are mounted at /mnt/, run typical dry run for WGS derived fastq for sample X using:
-${0##*/} -s sampleX_barcode -a sampleX_mapping_table.tsv | tee -a ~/glass_run.log
+For dry run, e.g.,:
+${GCMDPREFIX} -m DNA -t align -i fqs -s sample_barcode -f mapping_table.tsv -d wgs -n DRY
 
-To switch to whole exome derived fastq files, do:
-${0##*/} -s sampleX_barcode -a sampleX_mapping_table.tsv -m WES | tee -a ~/glass_run.log
+In all cases, place raw fastq files and related mapping file under 
+<path to disk2>/glassdata/inputs/fqs/<sample_barcode>/ directory
 
-To switch from dry run to an actual run on a compute node, add -t GO argument, e.g.,:
-${0##*/} -s sampleX_barcode -a sampleX_mapping_table.tsv -m WES -t GO | tee -a ~/glass_run.log
+Default mapping table filename is <sample_barcode>_mapping_table.tsv
 
-PS:
-In all cases, raw fastq files and related mapping file must be under 
-/mnt/disk2/glassdata/inputs/fqs/<sample_barcode>/ directory
-
-Mapping table given at -a flag has strict tsv format: Visit http://docker.glass-consortium.org for details
+Mapping table given at -a flag has specific tsv format: Visit http://docker.glass-consortium.org for details
 
 EOF
 
@@ -61,21 +56,24 @@ EOF
 
 if [[ $# == 0 ]];then show_help;exit 1;fi
 
-while getopts "s:a:m:t:r:e:h" opt; do
+while getopts "m:t:i:s:f:d:n:h" opt; do
     case "$opt" in
         h) show_help;exit 0;;
-        s) SAMPLE_UUID=$OPTARG;;
-        a) MFILEID=$OPTARG;;
-        m) RUNMODE=$OPTARG;;
-        t) RUNTYPE=$OPTARG;;
-        r) DISK1=$OPTARG;;
-        e) DISK2=$OPTARG;;
+        m) GSOURCE=$OPTARG;;
+        t) GTYPE=$OPTARG;;
+        i) GINPUT=$OPTARG;;        
+        s) GBARCODE=$OPTARG;;
+        f) GMAPFILE=$OPTARG;;
+        d) GMODE=$OPTARG;;
+        n) GRUNTYPE=$OPTARG;;
        '?')show_help >&2 exit 1 ;;
     esac
 done
 
-DISK1=${DISK1:-"/mnt/disk1"}
-DISK2=${DISK2:-"/mnt/disk2"}
+## internal disk mount path specific to container
+## defaults to /mnt unless GDISK1 and GDISK2 env variables exist.
+DISK1=${GDISK1:-"/mnt"}
+DISK2=${GDISK2:-"/mnt"}
 
 GLASSCORE=${DISK1}/glasscore
 GLASSFLOW=${GLASSCORE}/workflows/glass_docker_dnaseq_alignment
@@ -83,7 +81,7 @@ GLASS_SCRATCH=${DISK1}/scratch
 GLASSREF=${GLASS_SCRATCH}/refdata/bundle
 
 GLASSDATA=${DISK2}/glassdata
-INPUTDIR=${GLASSDATA}/inputs/fqs/${SAMPLE_UUID}
+INPUTDIR=${GLASSDATA}/inputs/fqs/${GBARCODE}
 
 ## exit if GLASS base directory is not present or does not meet required subdirectory structure.
 
@@ -107,23 +105,21 @@ cat << EOF
       /path_to_disk2/glassdata/inputs/fqs/<sample_barcode>/ directory ; 
       Currently it is at ${INPUTDIR} ;
       
-      You can override default base directories with -r for disk1 and -e for disk2 flag.
-      See example below or visit http://docker.glass-consortium.org on downloading pre-built reference datasets.
+      ${GCMDPREFIX} -h for help or visit http://docker.glass-consortium.org on downloading pre-built reference datasets.
 
       ##################################################################################################################
 
 EOF
-    show_help
     exit 1
 fi
 
 ## exit if unique sample name and/or mapping file is not provided at the given location
 
-TEMP_MAPFILE=$(printf "%s_mapping_table.tsv" "${SAMPLE_UUID}")
-MFILEID=${MFILEID:-"$TEMP_MAPFILE"}
+TEMP_MAPFILE=$(printf "%s_mapping_table.tsv" "${GBARCODE}")
+MFILEID=${GMAPFILE:-"$TEMP_MAPFILE"}
 MAPFILE=$(printf "%s/%s" "${INPUTDIR}" "${MFILEID}")
 
-if [[ -z ${SAMPLE_UUID} || -z ${MFILEID} || ! -s ${MAPFILE} ]]; then
+if [[ -z ${GBARCODE} || -z ${MFILEID} || ! -s ${MAPFILE} ]]; then
 cat << EOF
 
     ############################################## ERROR ###############################################################
@@ -132,50 +128,49 @@ cat << EOF
 
     sample unique name and/or mapping file is incorrectly specified, i.e.,
       Sample unique name is required using -s flag and should not have any space or special characters.
-      Currently it is ${SAMPLE_UUID} ;
+      Currently it is ${GBARCODE} ;
       
     Input directory where mapping file is placed should be at location:
-      /path_to_disk2/glassdata/inputs/fqs/<sample_barcode>/<mapping_table.tsv> ;
-      Currently mapping file name is ${MFILEID} and it is at location:
+      /path_to_disk2/glassdata/inputs/fqs/<sample_barcode>/<sample_barcode>_mapping_table.tsv ;
+      Currently mapping file name is ${GMAPFILE} and it is at location:
       ${MAPFILE}
-      PS: If ${MAPFILE} is empty, docker container will not start and give this error.
+      PS: If ${MAPFILE} is empty, container will not start and return this error.
 
-      See example below or visit http://docker.glass-consortium.org setting up pre-built disk mount structure
+      ${GCMDPREFIX} -h for help or visit http://docker.glass-consortium.org setting up pre-built disk mount structure
 
       ##################################################################################################################
 
 EOF
-    show_help
     exit 1
 fi
 
-## make docker container ID
+## make container ID
 TSTAMP=$(date +%d%b%y_%H%M%S%Z)
-DOCKID=$(printf "%s_%s" "${SAMPLE_UUID}" "${TSTAMP}")
+DOCKID=$(printf "%s_%s" "${GBARCODE}" "${TSTAMP}")
 
 ## switch to WGS mode unless -m WES
-RUNMODE=${RUNMODE:-WGS}
+RUNMODE=${GMODE:-WGS}
 
 if [[ "${RUNMODE}" != "WGS" && "${RUNMODE}" != "WES" ]]; then
   echo -e "\n## WARNING ##\nIncorrect RUNMODE argument: ${RUNMODE}\n"
-  echo -e "Supply -m with either WGS or WES\nSwitching to default WGS mode\n"
+  echo -e "Supply -d with either WGS or WES\nSwitching to default WGS mode\n"
 
   RUNMODE=${RUNMODE:-WGS}
 fi
 
-## switch to dry run unless -t GO
+## switch to dry run unless -n GO
 
-RUNTYPE=${RUNTYPE:-DRY}
+RUNTYPE=${GRUNTYPE:-DRY}
 
 if [[ "${RUNTYPE}" != "GO" ]]; then
 
 cat << EOF
       
       ##### INFO #####
-      docker run will be in dry mode because you have either not used -t flag or 
-      specified following: -t ${RUNTYPE}
+      container run will be in dry mode because you have either not used -n flag or 
+      specified following: -n ${GRUNTYPE}
 
-      To run actual analysis pipeline, use -t GO option.
+      To run actual analysis pipeline, use -n GO option.
 
 EOF
 
@@ -186,45 +181,46 @@ else
 cat << EOF
       
       ##### INFO #####
-      docker run will be run on an actual compute node because you have you have specified following: -t ${RUNTYPE}
+      container run will be on an actual compute node because you have you have specified following: -n ${RUNTYPE}
 
-      For dry run, use -t DRY or leave -t flag out from command.
+      For dry run, use -n DRY or leave -n flag out from command.
 
 EOF
     ## set flowr execute status
     FLOWRUN="TRUE"
 fi
 
-#################################### Initiate docker run in dry or actual run mode #####################################
+#################################### Initiate container run in dry or actual run mode #####################################
 
 ## import user id mapping variables, if present
+## disable user id mapping for singularity runs
 
-if [[ -x "${GLASSCORE}"/configs/bin/get_user_group_host_ids.sh ]]; then
+# if [[ -x "${GLASSCORE}"/configs/bin/get_user_group_host_ids.sh ]]; then
 
-  ## source script to get user and group ids and import env variables
-  . "${GLASSCORE}"/configs/bin/get_user_group_host_ids.sh
+#   ## source script to get user and group ids and import env variables
+#   . "${GLASSCORE}"/configs/bin/get_user_group_host_ids.sh
 
-  idmapping_exitstat=$?
-  printf "\nSourced %s/configs/bin/get_user_group_host_ids.sh with exit code: %s" "${GLASSCORE}" "${idmapping_exitstat}"
-  printf "\n#### HOST USER INFO ####\nUSER:%s\nUID:%s\nGROUP:%s\nGID:%s\n########################\n" "${MYUSER}" "${MYUID}" "${MYGROUP}" "${MYGID}"
+#   idmapping_exitstat=$?
+#   printf "\nSourced %s/configs/bin/get_user_group_host_ids.sh with exit code: %s" "${GLASSCORE}" "${idmapping_exitstat}"
+#   printf "\n#### HOST USER INFO ####\nUSER:%s\nUID:%s\nGROUP:%s\nGID:%s\n########################\n" "${MYUSER}" "${MYUID}" "${MYGROUP}" "${MYGID}"
 
-else
+# else
 
-cat << EOF
+# cat << EOF
 
-        ##### WARNING #####
-        Unable to locate or properly source "${GLASSCORE}"/configs/bin/get_user_group_host_ids.sh
-        Attempting one more time to map user and group ids
-EOF
+#         ##### WARNING #####
+#         Unable to locate or properly source "${GLASSCORE}"/configs/bin/get_user_group_host_ids.sh
+#         Attempting one more time to map user and group ids
+# EOF
 
-  export MYUSER=${MYUSER:-"$USER"}
-  export MYGROUP=${MYGROUP:-$(id -gn "$USER")}
-  export MYUID=${MYUID:-"$UID"}
-  export MYGID=${MYGID:-$(id -g "$USER")}
+#   export MYUSER=${MYUSER:-"$USER"}
+#   export MYGROUP=${MYGROUP:-$(id -gn "$USER")}
+#   export MYUID=${MYUID:-"$UID"}
+#   export MYGID=${MYGID:-$(id -g "$USER")}
 
-  printf "\n#### HOST USER INFO ####\nUSER:%s\nUID:%s\nGROUP:%s\nGID:%s\n########################\n" "${MYUSER}" "${MYUID}" "${MYGROUP}" "${MYGID}"
+#   printf "\n#### HOST USER INFO ####\nUSER:%s\nUID:%s\nGROUP:%s\nGID:%s\n########################\n" "${MYUSER}" "${MYUID}" "${MYGROUP}" "${MYGID}"
 
-fi
+# fi
 
 ###### export env variables #######
 ## export disk mount variables
@@ -233,81 +229,69 @@ export GLASS_SCRATCH
 export GLASSDATA
 export DOCKID
 export MFILEID
-export SAMPLE_UUID
+export MAPFILE
+export GBARCODE
 export FLOWRUN
-
-## export variables which are in reference to paths internal to docker container
-DOCKCODE="/mnt/glasscore/workflows/glass_docker_dnaseq_alignment"
-export DOCKCODE
-
-DOCKMAPDIR=$(printf "/mnt/glassdata/inputs/fqs/%s" "${SAMPLE_UUID}")
-export DOCKMAPDIR
+export GLASSFLOW
 #####################################
 
-##### Create command to run docker container #####
+##### Create command to run workflow #####
 
 ## default to WGS mode unless WES is specified
 
 if [[ ${RUNMODE} == "WES" ]]; then
 
-  echo -e "\n#### INFO ####\nUsing WES alignment workflows because RUNMODE is ${RUNMODE}\n###########\n"
+  echo -e "\n#### INFO ####\nUsing WES alignment workflows because RUNMODE is ${GMODE}\n###########\n"
 
-  DOCKCMD=$(printf "docker run -d --name %s -e HOSTUSER=%s -e HOSTGROUP=%s -e HOSTUSERID=%s -e HOSTGROUPID=%s -v %s:/mnt/glasscore -v %s:/mnt/scratch -v %s:/mnt/glassdata glasstools/keystone:1.2.2 \"-c cd %s/flowr && flowr run x=flowr_aln_fqs_wes fqs_map_file=\"%s/%s\" sample_name=\"%s\" platform=local execute=%s\"" "${DOCKID}" "${MYUSER}" "${MYGROUP}" "${MYUID}" "${MYGID}" "${GLASSCORE}" "${GLASS_SCRATCH}" "${GLASSDATA}" "${DOCKCODE}" "${DOCKMAPDIR}" "${MFILEID}" "${SAMPLE_UUID}" "${FLOWRUN}")
+  cd "${GLASSFLOW}"/flowr
+  DOCKCMD=$(printf "flowr run x=flowr_aln_fqs_wes fqs_map_file=\"%s\" sample_name=\"%s\" platform=local execute=%s\"" "${MAPFILE}" "${GBARCODE}" "${FLOWRUN}")
 else
-  DOCKCMD=$(printf "docker run -d --name %s -e HOSTUSER=%s -e HOSTGROUP=%s -e HOSTUSERID=%s -e HOSTGROUPID=%s -v %s:/mnt/glasscore -v %s:/mnt/scratch -v %s:/mnt/glassdata glasstools/keystone:1.2.2 \"-c cd %s/flowr && flowr run x=flowr_aln_fqs fqs_map_file=\"%s/%s\" sample_name=\"%s\" platform=local execute=%s\"" "${DOCKID}" "${MYUSER}" "${MYGROUP}" "${MYUID}" "${MYGID}" "${GLASSCORE}" "${GLASS_SCRATCH}" "${GLASSDATA}" "${DOCKCODE}" "${DOCKMAPDIR}" "${MFILEID}" "${SAMPLE_UUID}" "${FLOWRUN}")
+  echo -e "\n#### INFO ####\nUsing WGS alignment workflows because RUNMODE is ${GMODE}\n###########\n"
+
+  cd "${GLASSFLOW}"/flowr
+  DOCKCMD=$(printf "flowr run x=flowr_aln_fqs fqs_map_file=\"%s\" sample_name=\"%s\" platform=local execute=%s\"" "${MAPFILE}" "${GBARCODE}" "${FLOWRUN}")
 fi
 
-## Run docker run command with strict error checking:
-set -e
-echo -e "\n#### Now running following docker run command ####\nUnless docker run syntax is incorrect, detailed summary of running container will be displayed at the end.\n"
+## Evaluate command:
+echo -e "\n#### Now running following command ####\n"
 echo -e "${DOCKCMD}\n"
 
 ####### Following line will submit docker command ########
-DOCKRUN=$(eval "${DOCKCMD}")
+eval "${DOCKCMD}" | tee -a "${GLASS_SCRATCH}"/logs/"${DOCKID}".log
 EXITSTAT=$?
-set +e
 
-## PRINT SUMMARY IF COMMAND SUCCEEDS:
+## PRINT SUMMARY OF RUN STATUS:
 
 cat << EOF
 
 ####################################################################################
-Summary of variables supplied to docker run command at ${TSTAMP}
+Summary of variables supplied at ${TSTAMP}
 
-SAMPLE UUID: ${SAMPLE_UUID}
-mapping file: ${MAPFILE}
-RUN MODE: ${RUNMODE}
-RUN TYPE: ${RUNTYPE}
+SAMPLE UUID: ${GBARCODE}
+mapping file: ${GMAPFILE}
+RUN MODE: ${GMODE}, actual mode was ${RUNMODE}
+RUN TYPE: ${GRUNTYPE}
 
-DISK1 HOST PATH: ${DISK1}
-DISK2 HOST PATH: ${DISK2}
 GLASS CODE DIRECTORY: ${GLASSFLOW}
 GLASS REFERENCE DATA: ${GLASSREF}
-GLASS OUTPUT PATH: ${GLASSDATA}/flowr/${SAMPLE_UUID}_<UUID assigned by flowr>
 
-#### Docker run command ####
+#### Run command ####
 
 ${DOCKCMD}
 
-Above command was run with exit code: ${EXITSTAT}. 
-This exit code does not indicate exit status of docker container. For the latter, use:
-docker ps -a --filter "id=${DOCKRUN}"
+Above command was run with exit code: ${EXITSTAT}
 
 #######################################
 
-Docker container name: ${DOCKID}
-Docker container ID: ${DOCKRUN}
+Container name: ${DOCKID}
+Log file: "${GLASS_SCRATCH}"/logs/"${DOCKID}".log
 
-You may check container status by:
-docker ps -a --filter "id=${DOCKRUN}"
+RUN TYPE: ${GRUNTYPE} or ${FLOWRUN} ; GO or TRUE means it will submit commands to a compute node.
 
-You may get container logs by:
-docker logs ${DOCKID} 2> ~/docker_stdout.log
+Check logs for details in GLASS OUTPUT PATH at
+${GLASSDATA}/flowr/${SAMPLE_UUID}_<UUID assigned by flowr> and
+${GLASS_SCRATCH}/logs/${DOCKID}.log
 
-RUN TYPE: ${RUNTYPE} or ${FLOWRUN} ; GO or TRUE means it will submit commands to a compute node.
-
-If RUN TYPE was GO, variant calls and log files will be saved at following directory:
-${GLASSDATA}/flowr/${SAMPLE_UUID}_<UUID assigned by flowr>/
 ####################################################################################
 
 EOF
